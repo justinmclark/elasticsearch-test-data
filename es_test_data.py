@@ -8,6 +8,9 @@ import string
 import uuid
 import datetime
 
+import os
+import sys
+
 import tornado.gen
 import tornado.httpclient
 import tornado.ioloop
@@ -221,8 +224,9 @@ def generate_test_data():
     ts_start = int(time.time())
     upload_data_txt = ""
 
-    logging.info("Generating %d docs, upload batch size is %d" % (tornado.options.options.count,
-                                                                  tornado.options.options.batch_size))
+    logging.info("Generating %d docs, upload batch size is %d, waiting for %s seconds between each upload" % (tornado.options.options.count,
+                                                                                                              tornado.options.options.batch_size,
+                                                                                                              tornado.options.options.upload_sleep))
     for num in range(0, tornado.options.options.count):
 
         item = generate_random_doc(format)
@@ -259,13 +263,18 @@ def generate_test_data():
 
 
 if __name__ == '__main__':
-    tornado.options.define("es_url", type=str, default='http://localhost:9200/', help="URL of your Elasticsearch node")
+    # TODO: make ES_URL an environmental variable that we will wait to be set
+    while not os.environ.get('ES_URL'):
+        pass
+
+    tornado.options.define("es_url", type=str, default=os.environ.get('ES_URL'), help="URL of your Elasticsearch node")
     tornado.options.define("index_name", type=str, default='test_data', help="Name of the index to store your messages")
     tornado.options.define("index_type", type=str, default='test_type', help="Type")
-    tornado.options.define("batch_size", type=int, default=1000, help="Elasticsearch bulk index batch size")
+    tornado.options.define("batch_size", type=int, default=100, help="Elasticsearch bulk index batch size")
     tornado.options.define("num_of_shards", type=int, default=2, help="Number of shards for ES index")
     tornado.options.define("http_upload_timeout", type=int, default=3, help="Timeout in seconds when uploading data")
-    tornado.options.define("count", type=int, default=100000, help="Number of docs to generate")
+    tornado.options.define("count", type=int, default=100, help="Number of docs to generate")
+    tornado.options.define("upload_sleep", type=int, default=20, help="How long to wait between each batch upload")
     tornado.options.define("format", type=str, default='name:str,age:int,last_updated:ts', help="message format")
     tornado.options.define("num_of_replicas", type=int, default=0, help="Number of replicas for ES index")
     tornado.options.define("force_init_index", type=bool, default=False, help="Force deleting and re-initializing the Elasticsearch index")
@@ -278,4 +287,12 @@ if __name__ == '__main__':
     tornado.options.define("validate_cert", type=bool, default=True, help="SSL validate_cert for requests. Use false for self-signed certificates.")
     tornado.options.parse_command_line()
 
-    tornado.ioloop.IOLoop.instance().run_sync(generate_test_data)
+    for i in range(100):
+        logging.info("Attempting document upload iteration {}".format(i))
+        tornado.ioloop.IOLoop.instance().run_sync(generate_test_data)
+        time.sleep(tornado.options.options.upload_sleep)
+
+    # if the upload completes, log the info and just remain in a loop
+    logging.info("Completed document upload. Waiting in a busy loop. No more data will be sent to Elasticsearch.")
+    while 1:
+        pass
